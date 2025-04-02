@@ -69,6 +69,36 @@
         #chart-container {
             margin-top: 20px;
         }
+        #registro-operaciones {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+        }
+        #registro-operaciones h3 {
+            margin-top: 0;
+        }
+        #registro-operaciones ul {
+            list-style: none;
+            padding: 0;
+        }
+        #registro-operaciones li {
+            padding: 5px 0;
+            border-bottom: 1px solid #ddd;
+        }
+        #descargar-registro {
+            display: block;
+            margin: 10px auto;
+            padding: 10px 20px;
+            background-color: #2196f3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #descargar-registro:hover {
+            background-color: #1976d2;
+        }
     </style>
 </head>
 <body>
@@ -79,6 +109,11 @@
         <div id="chart-container">
             <canvas id="precioChart"></canvas>
         </div>
+        <div id="registro-operaciones">
+            <h3>Registro de Operaciones</h3>
+            <ul id="lista-operaciones"></ul>
+            <button id="descargar-registro">Descargar Registro (JSON)</button>
+        </div>
         <div id="ultima-actualizacion"></div>
     </div>
     <audio id="alertSound" src="https://www.soundjay.com/buttons/beep-01a.mp3" preload="auto"></audio>
@@ -86,6 +121,42 @@
     <script>
         let chart;
         let ultimaRecomendacion = '';
+        let operaciones = JSON.parse(localStorage.getItem('operacionesKaspa')) || [];
+
+        // Función para guardar una operación
+        function registrarOperacion(tipo, precioSugerido, precioActual) {
+            const operacion = {
+                tipo: tipo,
+                precioSugerido: precioSugerido,
+                precioActual: precioActual,
+                fecha: new Date().toLocaleString('es-ES')
+            };
+            operaciones.push(operacion);
+            localStorage.setItem('operacionesKaspa', JSON.stringify(operaciones));
+            actualizarRegistro();
+        }
+
+        // Función para actualizar el registro en la interfaz
+        function actualizarRegistro() {
+            const listaOperaciones = document.getElementById('lista-operaciones');
+            listaOperaciones.innerHTML = '';
+            operaciones.forEach(op => {
+                const li = document.createElement('li');
+                li.textContent = `${op.fecha} - ${op.tipo} | Precio sugerido: $${op.precioSugerido} | Precio actual: $${op.precioActual}`;
+                listaOperaciones.appendChild(li);
+            });
+        }
+
+        // Función para descargar el registro como JSON
+        function descargarRegistro() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(operaciones, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "registro_operaciones_kaspa.json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        }
 
         async function analizarKaspa() {
             const resultadosDiv = document.getElementById('resultados');
@@ -148,6 +219,12 @@
                     if (recomendacion.startsWith("COMPRAR") || recomendacion.startsWith("VENDER")) {
                         alert(`¡Alerta! ${recomendacion}`);
                         alertSound.play().catch(err => console.log("Error al reproducir sonido:", err));
+                        // Registrar la operación
+                        registrarOperacion(
+                            recomendacion.split(' -')[0],
+                            precioSugerido ? parseFloat(precioSugerido.match(/~?\$([\d.]+)/)[1]) : null,
+                            precioKaspa
+                        );
                     }
                     ultimaRecomendacion = recomendacion;
                 }
@@ -195,19 +272,18 @@
             const tendenciaBajista = smaCorto < smaLargo;
             const diferenciaPorcentual = ((precioActual - smaCorto) / smaCorto) * 100;
 
-            // Ajuste para scalping: márgenes más estrechos
-            const margenCompraVenta = 2; // Reducimos el margen de 5% a 2% para capturar movimientos más pequeños
-            const margenSobrecompraVenta = 5; // Reducimos de 10% a 5%
+            const margenCompraVenta = 2;
+            const margenSobrecompraVenta = 5;
 
             if (tendenciaAlcista && precioActual > smaCorto && diferenciaPorcentual < margenCompraVenta) {
-                const precioBase = soporte + (0.5 * atr); // Compra más cerca del soporte
+                const precioBase = soporte + (0.5 * atr);
                 const precioCompraSugerido = Math.min(precioBase, fiboLevels['38.2']);
                 return {
                     recomendacion: "COMPRAR - Tendencia alcista (Scalping)",
                     precioSugerido: `Precio sugerido de compra: ~$${precioCompraSugerido.toFixed(4)} (soporte + 0.5*ATR o Fib 38.2%)`
                 };
             } else if (tendenciaBajista && precioActual < smaCorto && diferenciaPorcentual > -margenCompraVenta) {
-                const precioBase = fiboLevels['38.2'] - (0.5 * atr); // Venta más cerca de Fib 38.2%
+                const precioBase = fiboLevels['38.2'] - (0.5 * atr);
                 const precioVentaSugerido = Math.max(precioBase, fiboLevels['61.8']);
                 return {
                     recomendacion: "VENDER - Tendencia bajista (Scalping)",
@@ -231,19 +307,19 @@
             }
         }
 
-    function verificarNivelesClave(precioActual, soporte, resistencia, fiboLevels, atr) {
-        const margen = atr * 0.5; // Reducimos el margen para scalping
-        if (Math.abs(precioActual - soporte) <= margen) {
-            return `Atención: Precio cerca del soporte ($${soporte.toFixed(4)}) - Oportunidad de compra`;
-        } else if (Math.abs(precioActual - fiboLevels['38.2']) <= margen) {
-            return `Atención: Precio cerca de Fibonacci 38.2% ($${fiboLevels['38.2'].toFixed(4)}) - Posible venta`;
-        } else if (Math.abs(precioActual - fiboLevels['61.8']) <= margen) {
-            return `Atención: Precio cerca de Fibonacci 61.8% ($${fiboLevels['61.8'].toFixed(4)}) - Posible venta`;
-        } else if (Math.abs(precioActual - resistencia) <= margen) {
-            return `Atención: Precio cerca de la resistencia ($${resistencia.toFixed(4)}) - Oportunidad de venta`;
+        function verificarNivelesClave(precioActual, soporte, resistencia, fiboLevels, atr) {
+            const margen = atr * 0.5;
+            if (Math.abs(precioActual - soporte) <= margen) {
+                return `Atención: Precio cerca del soporte ($${soporte.toFixed(4)}) - Oportunidad de compra`;
+            } else if (Math.abs(precioActual - fiboLevels['38.2']) <= margen) {
+                return `Atención: Precio cerca de Fibonacci 38.2% ($${fiboLevels['38.2'].toFixed(4)}) - Posible venta`;
+            } else if (Math.abs(precioActual - fiboLevels['61.8']) <= margen) {
+                return `Atención: Precio cerca de Fibonacci 61.8% ($${fiboLevels['61.8'].toFixed(4)}) - Posible venta`;
+            } else if (Math.abs(precioActual - resistencia) <= margen) {
+                return `Atención: Precio cerca de la resistencia ($${resistencia.toFixed(4)}) - Oportunidad de venta`;
+            }
+            return null;
         }
-        return null;
-    }
 
         function actualizarGrafico(precios, precioActual, smaCorto, smaLargo, soporte, resistencia, fiboLevels) {
             const ctx = document.getElementById('precioChart').getContext('2d');
@@ -321,8 +397,13 @@
             });
         }
 
-        window.onload = analizarKaspa;
-        setInterval(analizarKaspa, 60000); // Actualiza cada 1 minuto
+        // Cargar el registro al iniciar
+        window.onload = () => {
+            actualizarRegistro();
+            analizarKaspa();
+            setInterval(analizarKaspa, 60000); // Actualiza cada 1 minuto
+            document.getElementById('descargar-registro').addEventListener('click', descargarRegistro);
+        };
     </script>
 </body>
 </html>
